@@ -6,18 +6,15 @@ matrix:
     #
     # Python 3.5 testing
     #
-    # lint
-    - python: "3.5"
-      env: TOX_POSARGS="-e lint"
     # doctest
     - python: "3.5"
       env: TOX_POSARGS="-e doctest"
-    # core
-    - python: "3.5"
-      env: TOX_POSARGS="-e py35-core"
     #
     # Python 3.6 testing
     #
+    # lint
+    - python: "3.6"
+      env: TOX_POSARGS="-e lint"
     # core
     - python: "3.6"
       env: TOX_POSARGS="-e py36-core"
