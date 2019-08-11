@@ -25,6 +25,7 @@ from eth_utils.toolz import (
 
 import ssz
 from ssz.constants import (
+    BASE_TYPES,
     FIELDS_META_ATTR,
 )
 from ssz.sedes.base import (
@@ -32,6 +33,9 @@ from ssz.sedes.base import (
 )
 from ssz.sedes.container import (
     Container,
+)
+from ssz.cache import (
+    get_key,
 )
 from ssz.utils import (
     get_duplicates,
@@ -42,7 +46,7 @@ TSerializable = TypeVar("TSerializable", bound="BaseSerializable")
 
 class Meta(NamedTuple):
     has_fields: bool
-    fields: Optional[Tuple[Tuple[str, BaseSedes]]]
+    fields: Optional[Tuple[Tuple[str, BaseSedes], ...]]
     container_sedes: Optional[Container]
     field_names: Optional[Tuple[str, ...]]
     field_attrs: Optional[Tuple[str, ...]]
@@ -88,8 +92,6 @@ def merge_args_to_kwargs(args, kwargs, arg_names):
 
 
 class BaseSerializable(collections.Sequence):
-    _cached_ssz = None
-
     def __init__(self, *args, **kwargs):
         arg_names = self._meta.field_names or ()
         validate_args_and_kwargs(args, kwargs, arg_names)
@@ -161,7 +163,7 @@ class BaseSerializable(collections.Sequence):
             self._hash_cache = hash(self.__class__) * int.from_bytes(self.hash_tree_root, "little")
         return self._hash_cache
 
-    def copy(self, *args, **kwargs):
+    def copy(self, clear_cache=False, *args, **kwargs):
         missing_overrides = set(
             self._meta.field_names
         ).difference(
@@ -169,29 +171,66 @@ class BaseSerializable(collections.Sequence):
         ).difference(
             self._meta.field_names[:len(args)]
         )
-        unchanged_kwargs = {
-            key: copy.deepcopy(value)
-            for key, value
-            in self.as_dict().items()
-            if key in missing_overrides
-        }
+
+        unchanged_kwargs = {}
+        for key, value in self.as_dict().items():
+            if key in missing_overrides:
+                if isinstance(value, BASE_TYPES):
+                    unchanged_kwargs[key] = value
+                elif (
+                    isinstance(value, tuple) and
+                    len(value) > 0 and
+                    isinstance(value[0], BASE_TYPES)
+                ):
+                    unchanged_kwargs[key] = value
+                else:
+                    unchanged_kwargs[key] = copy.deepcopy(value)
+
         combined_kwargs = dict(**unchanged_kwargs, **kwargs)
         all_kwargs = merge_args_to_kwargs(args, combined_kwargs, self._meta.field_names)
-        return type(self)(**all_kwargs)
+
+        result = type(self)(**all_kwargs)
+
+        if clear_cache:
+            result.clear_cache()
+
+        return result
+
+    def clear_cache(self):
+        self._merkle_leaves_dict = {}
+        self._fixed_size_section_length_cache = None
+        self._serialize_cache = None
+
 
     def __copy__(self):
         return self.copy()
 
-    def __deepcopy__(self, *args):
-        return self.copy()
+    def __deepcopy__(self, memodict=None):
+        if memodict is None:
+            memodict = {}
 
-    _hash_tree_root_cache = None
+        cls = self.__class__
+        result = cls.__new__(cls)
+        memodict[id(self)] = result
+
+        for k, v in self.__dict__.items():
+            setattr(result, k, copy.deepcopy(v, memodict))
+
+        setattr(result, '_merkle_leaves_dict', self._merkle_leaves_dict)
+        setattr(result, '_fixed_size_section_length_cache', self._fixed_size_section_length_cache)
+
+        return result
+
+    _merkle_leaves_dict = {}
+    _fixed_size_section_length_cache = None
+    _serialize_cache = None
 
     @property
     def hash_tree_root(self):
-        if self._hash_tree_root_cache is None:
-            self._hash_tree_root_cache = ssz.get_hash_tree_root(self)
-        return self._hash_tree_root_cache
+        return ssz.get_hash_tree_root(self)
+
+    def get_key(self) -> bytes:
+        return get_key(self.__class__, self)
 
 
 def make_immutable(value):
@@ -363,7 +402,10 @@ class MetaSerializable(abc.ABCMeta):
     # Implement BaseSedes methods as pass-throughs to the container sedes
     #
     def serialize(cls: Type[TSerializable], value: TSerializable) -> bytes:
-        return cls._meta.container_sedes.serialize(value)
+        # return cls._meta.container_sedes.serialize(value)
+        if value._serialize_cache is None:
+            value._serialize_cache = cls._meta.container_sedes.serialize(value)
+        return value._serialize_cache
 
     def deserialize(cls: Type[TSerializable], data: bytes) -> TSerializable:
         deserialized_fields = cls._meta.container_sedes.deserialize(data)
@@ -371,7 +413,14 @@ class MetaSerializable(abc.ABCMeta):
         return cls(**deserialized_field_dict)
 
     def get_hash_tree_root(cls: Type[TSerializable], value: TSerializable) -> bytes:
-        return cls._meta.container_sedes.get_hash_tree_root(value)
+        # return cls._meta.container_sedes.get_hash_tree_root(value)
+        root, merkle_leaves_dict = cls._meta.container_sedes.get_hash_tree_root_and_leaves(
+            value,
+            copy.deepcopy(value._merkle_leaves_dict),
+        )
+
+        value._merkle_leaves_dict = merkle_leaves_dict
+        return root
 
     @property
     def is_fixed_sized(cls):
