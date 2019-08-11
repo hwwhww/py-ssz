@@ -18,7 +18,7 @@ from ssz.sedes import (
 
 random.seed(0)
 
-do_profiling = False
+do_profiling = True
 
 TOLERABLE_PERFORMANCE = 15  # Seconds
 
