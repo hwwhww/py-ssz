@@ -4,6 +4,7 @@ from typing import (
     Sequence,
     Tuple,
 )
+import functools
 
 from eth_typing import (
     Hash32,
@@ -76,6 +77,7 @@ def pad_zeros(value: bytes) -> bytes:
     return value.ljust(CHUNK_SIZE, b"\x00")
 
 
+@functools.lru_cache(maxsize=2**30)
 def to_chunks(packed_data: bytes) -> Tuple[bytes, ...]:
     size = len(packed_data)
     number_of_full_chunks = size // CHUNK_SIZE
@@ -92,6 +94,7 @@ def to_chunks(packed_data: bytes) -> Tuple[bytes, ...]:
         return full_chunks + (last_chunk,)
 
 
+@functools.lru_cache(maxsize=2**30)
 def pack(serialized_values: Sequence[bytes]) -> Tuple[Hash32, ...]:
     if len(serialized_values) == 0:
         return (EMPTY_CHUNK,)
@@ -100,6 +103,7 @@ def pack(serialized_values: Sequence[bytes]) -> Tuple[Hash32, ...]:
     return to_chunks(data)
 
 
+@functools.lru_cache(maxsize=2**30)
 def pack_bytes(byte_string: bytes) -> Tuple[bytes, ...]:
     if len(byte_string) == 0:
         return (EMPTY_CHUNK,)
@@ -107,6 +111,7 @@ def pack_bytes(byte_string: bytes) -> Tuple[bytes, ...]:
     return to_chunks(byte_string)
 
 
+@functools.lru_cache(maxsize=2**30)
 def pack_bits(values: Sequence[bool]) -> Tuple[Hash32]:
     as_bytearray = get_serialized_bytearray(values, len(values), extra_byte=False)
     packed = bytes(as_bytearray)
@@ -133,6 +138,8 @@ def hash_layer(child_layer: Sequence[bytes]) -> Tuple[Hash32, ...]:
 
 
 def merkleize(chunks: Sequence[Hash32], limit: int=None, merkle_leaves_dict=None) -> Hash32:
+    with_cache = merkle_leaves_dict is not None
+
     chunk_len = len(chunks)
 
     if limit is None:
@@ -151,9 +158,6 @@ def merkleize(chunks: Sequence[Hash32], limit: int=None, merkle_leaves_dict=None
 
     tmp_list = [None for _ in range(max_depth + 1)]
 
-    # if merkle_leaves_dict is not None:
-    #     print(len(merkle_leaves_dict))
-
     def merge(leaf: bytes, leaf_index: int) -> None:
         node = leaf
         layer = 0
@@ -162,12 +166,11 @@ def merkleize(chunks: Sequence[Hash32], limit: int=None, merkle_leaves_dict=None
                 if leaf_index == chunk_len and layer < chunk_depth:
                     # Keep going if we are complementing the void to the next power of 2
                     key = node + ZERO_HASHES[layer]
-                    if (merkle_leaves_dict is not None) and key in merkle_leaves_dict:
+                    if with_cache and key in merkle_leaves_dict:
                         node = merkle_leaves_dict[key]
-                        # print('hit')
                     else:
-                        node = hash_eth2(node + ZERO_HASHES[layer])
-                        if merkle_leaves_dict is not None:
+                        node = hash_eth2(key)
+                        if with_cache:
                             merkle_leaves_dict[key] = node
                 else:
                     break
@@ -175,17 +178,13 @@ def merkleize(chunks: Sequence[Hash32], limit: int=None, merkle_leaves_dict=None
                 key = tmp_list[layer] + node
                 if (merkle_leaves_dict is not None) and key in merkle_leaves_dict:
                     node = merkle_leaves_dict[key]
-                    # print('hit')
                 else:
-                    node = hash_eth2(tmp_list[layer] + node)
+                    node = hash_eth2(key)
                     if merkle_leaves_dict is not None:
                         merkle_leaves_dict[key] = node
             layer += 1
+
         tmp_list[layer] = node
-        if merkle_leaves_dict is not None:
-            return merkle_leaves_dict
-        else:
-            return None
 
     # Merge in leaf by leaf.
     for leaf_index in range(chunk_len):
@@ -199,12 +198,11 @@ def merkleize(chunks: Sequence[Hash32], limit: int=None, merkle_leaves_dict=None
     # complement with zero-hashes at each depth.
     for layer in range(chunk_depth, max_depth):
         key = tmp_list[layer] + ZERO_HASHES[layer]
-        if (merkle_leaves_dict is not None) and key in merkle_leaves_dict:
+        if with_cache and key in merkle_leaves_dict:
             tmp_result = merkle_leaves_dict[key]
-            # print('hit')
         else:
             tmp_result = hash_eth2(tmp_list[layer] + ZERO_HASHES[layer])
-            if merkle_leaves_dict is not None:
+            if with_cache:
                 merkle_leaves_dict[key] = tmp_result
 
         tmp_list[layer + 1] = tmp_result
@@ -212,10 +210,8 @@ def merkleize(chunks: Sequence[Hash32], limit: int=None, merkle_leaves_dict=None
     result = tmp_list[max_depth]
 
     if merkle_leaves_dict is not None:
-        # print('merkle_leaves_dict is not None')
         return result, merkle_leaves_dict
     else:
-        # print('merkle_leaves_dict is None')
         return result
 
 
