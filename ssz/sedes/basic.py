@@ -111,8 +111,7 @@ class CompositeSedes(BaseCompositeSedes[TSerializable, TDeserialized]):
         pairs = self._get_item_sedes_pairs(value)  # slow
         element_sedes = tuple(sedes for element, sedes in pairs)
 
-        has_fixed_size_section_length_cache = hasattr(value, '_fixed_size_section_length_cache')
-        if has_fixed_size_section_length_cache:
+        if not isinstance(value, (tuple, bytes, int)) and value.has_fixed_size_section_length_cache:
             if value._fixed_size_section_length_cache is None:
                 fixed_size_section_length = _compute_fixed_size_section_length(element_sedes)
                 value._fixed_size_section_length_cache = fixed_size_section_length
@@ -170,10 +169,16 @@ class CompositeSedes(BaseCompositeSedes[TSerializable, TDeserialized]):
     def _deserialize_stream(self, stream: IO[bytes]) -> TDeserialized:
         ...
 
+    def has_fixed_size_section_length_cache(self, value: Any) -> bytes:
+        return False
+
     def get_key(self, value: Any) -> bytes:
         return get_key(self, value)
 
 
 class BasicBytesSedes(BaseCompositeSedes[TSerializable, TDeserialized]):
+    def has_fixed_size_section_length_cache(self, value: Any) -> bytes:
+        return False
+
     def get_key(self, value: Any) -> bytes:
         return get_key(self, value)

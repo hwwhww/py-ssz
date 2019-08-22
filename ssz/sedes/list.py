@@ -87,6 +87,9 @@ class EmptyList(BaseCompositeSedes[Sequence[TSerializable], Tuple[TSerializable,
     def chunk_count(self) -> int:
         return 0
 
+    def has_fixed_size_section_length_cache(self, value: Any) -> bytes:
+        return False
+
     def get_key(self, value: Any) -> bytes:
         raise NotImplementedError("Empty list does not implement `get_key`")
 

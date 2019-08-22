@@ -76,6 +76,10 @@ class BaseCompositeSedes(BaseSedes[TSerializable, TDeserialized]):
     def get_key(self, value: Any) -> bytes:
         ...
 
+    @abstractmethod
+    def has_fixed_size_section_length_cache(self) -> bool:
+        ...
+
 
 class BaseByteSedes(BaseSedes[TSerializable, TDeserialized]):
     @abstractmethod

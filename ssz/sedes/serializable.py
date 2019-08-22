@@ -223,6 +223,9 @@ class BaseSerializable(collections.Sequence):
     def hash_tree_root(self):
         return self.__class__.get_hash_tree_root(self, cache=True)
 
+    def has_fixed_size_section_length_cache(self) -> bool:
+        return True
+
     def get_key(self) -> bytes:
         return get_key(self.__class__, self)
 
