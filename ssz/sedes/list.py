@@ -19,9 +19,6 @@ from eth_utils.toolz import (
     sliding_window,
 )
 
-from ssz.cache.utils import (
-    get_merkle_leaves_with_cache,
-)
 from ssz.constants import (
     CHUNK_SIZE,
     OFFSET_SIZE,
@@ -37,7 +34,8 @@ from ssz.sedes.base import (
 )
 from ssz.sedes.basic import (
     BasicSedes,
-    CompositeSedes,
+    HomogeneousCompositeSedes,
+    NonhomogeneousCompositeSedes,
 )
 from ssz.typing import (
     CacheObj,
@@ -83,7 +81,7 @@ class EmptyList(BaseCompositeSedes[Sequence[TSerializable], Tuple[TSerializable,
                                       cache: CacheObj) -> Tuple[Hash32, CacheObj]:
         if len(value):
             raise ValueError("Cannot compute tree hash for non-empty value using `EmptyList` sedes")
-        return EMPTY_LIST_HASH_TREE_ROOT
+        return EMPTY_LIST_HASH_TREE_ROOT, cache
 
     def chunk_count(self) -> int:
         return 0
@@ -104,7 +102,7 @@ empty_list = EmptyList()
 TSedesPairs = Tuple[Tuple[BaseSedes[TSerializable, TDeserialized], TSerializable], ...]
 
 
-class List(CompositeSedes[Sequence[TSerializable], Tuple[TDeserialized, ...]]):
+class List(HomogeneousCompositeSedes[Sequence[TSerializable], Tuple[TDeserialized, ...]]):
     def __init__(self,
                  element_sedes: TSedes,
                  max_length: int) -> None:
@@ -207,13 +205,12 @@ class List(CompositeSedes[Sequence[TSerializable], Tuple[TDeserialized, ...]]):
                 'get_hash_tree_root_and_leaves',
             )
             if has_get_hash_tree_root_and_leaves:
-                merkle_leaves = get_merkle_leaves_with_cache(
+                merkle_leaves = self.get_merkle_leaves_with_cache(
                     value,
-                    self.element_sedes,
                     cache,
                 )
             else:
-                merkle_leaves = get_merkle_leaves_without_cache(value, self.element_sedes)
+                merkle_leaves = self.get_merkle_leaves_without_cache(value)
 
         merkleize_result, cache = merkleize_with_cache(
             merkle_leaves,

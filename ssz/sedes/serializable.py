@@ -34,6 +34,7 @@ from ssz.constants import (
 )
 from ssz.sedes.base import (
     BaseSedes,
+    BaseSerializable,
 )
 from ssz.sedes.container import (
     Container,
@@ -94,7 +95,7 @@ def merge_args_to_kwargs(args, kwargs, arg_names):
         yield name, value
 
 
-class BaseSerializable(collections.Sequence):
+class BasicSerializable(BaseSerializable):
     cache = None
 
     def __init__(self, *args, cache=None, **kwargs):
@@ -221,7 +222,7 @@ class BaseSerializable(collections.Sequence):
 
     @property
     def hash_tree_root(self):
-        return self.__class__.get_hash_tree_root(self, cache=True)
+        return self.__class__.get_hash_tree_root(self, use_cache=True)
 
     def get_key(self) -> bytes:
         return get_key(self.__class__, self)
@@ -413,13 +414,9 @@ class MetaSerializable(abc.ABCMeta):
 
     def get_hash_tree_root(cls: Type[TSerializable],
                            value: TSerializable,
-                           cache: bool=True) -> bytes:
-        if cache:
-            root, cache = cls._meta.container_sedes.get_hash_tree_root_and_leaves(
-                value,
-                value.cache,
-            )
-            value.cache = cache
+                           use_cache: bool=True) -> bytes:
+        if use_cache:
+            root, _ = cls._meta.container_sedes.get_hash_tree_root_and_leaves(value, value.cache)
             return root
         else:
             return cls._meta.container_sedes.get_hash_tree_root(value)
@@ -436,7 +433,7 @@ class MetaSerializable(abc.ABCMeta):
 BaseSedes.register(MetaSerializable)
 
 
-class Serializable(BaseSerializable, metaclass=MetaSerializable):
+class Serializable(BasicSerializable, metaclass=MetaSerializable):
     """
     The base class for serializable objects.
     """
